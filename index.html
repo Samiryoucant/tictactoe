@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Firebase Multiplayer Tic-Tac-Toe</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Poppins',sans-serif;background:#000;color:#fff;display:flex;flex-direction:column;align-items:center;min-height:100vh;overflow-x:hidden;transition:background 2s ease;}
+header{text-align:center;padding:15px;}
+h1{font-size:26px;color:#00e0ff;letter-spacing:1px;margin:0;}
+#turnIndicator{margin-top:8px;color:#ccc;}
+#board{display:grid;grid-template-columns:repeat(3,100px);grid-template-rows:repeat(3,100px);gap:8px;margin:20px auto;justify-content:center;opacity:0;transition:opacity 0.5s ease;}
+.cell{width:100px;height:100px;background:#1a1a1a;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:2.8rem;cursor:pointer;box-shadow:0 0 8px #000;transition:transform 0.3s,box-shadow 0.3s;}
+.cell:hover{box-shadow:0 0 15px #00e0ff;transform:scale(1.05);}
+.pop{animation:popIn 0.25s ease-out;}
+@keyframes popIn{0%{transform:scale(0);opacity:0;}80%{transform:scale(1.2);opacity:1;}100%{transform:scale(1);}}
+#chatContainer{width:90%;max-width:400px;background:#181818;border-radius:8px;padding:10px;margin-top:15px;opacity:0;transition:opacity 0.5s ease;}
+#chatBox{height:150px;overflow-y:auto;border-bottom:1px solid #333;padding-bottom:5px;margin-bottom:5px;}
+.msg{margin:4px 0;font-size:14px;}
+#chatInput{width:70%;padding:8px;border:none;border-radius:5px;outline:none;background:#2a2a2a;color:#fff;}
+#sendBtn{padding:8px 12px;background:#00e0ff;border:none;border-radius:5px;cursor:pointer;color:#121212;font-weight:bold;}
+#footer{margin-top:15px;text-align:center;opacity:0;transition:opacity 0.5s ease;}
+#restartBtn,#rematchBtn,#endGameBtn{padding:8px 14px;background:#00e0ff;border:none;border-radius:6px;cursor:pointer;color:#121212;font-weight:bold;margin:5px;}
+#statusMsg{margin-top:8px;color:#f55;font-size:14px;}
+#playerInfo{color:#bbb;font-size:14px;}
+#loadingScreen{position:fixed;top:0;left:0;width:100%;height:100%;background:#000;display:flex;flex-direction:column;justify-content:center;align-items:center;z-index:999;overflow:hidden;}
+.spinner{width:70px;height:70px;border:5px solid #00e0ff33;border-top:5px solid #00e0ff;border-radius:50%;animation:spin 1s linear infinite;}
+@keyframes spin{100%{transform:rotate(360deg);}}
+.loading-text{margin-top:20px;font-size:18px;color:#00e0ff;animation:glow 1.5s ease-in-out infinite alternate;}
+@keyframes glow{from{text-shadow:0 0 5px #00e0ff,0 0 10px #00e0ff;opacity:0.7;}to{text-shadow:0 0 20px #00e0ff,0 0 30px #00e0ff;opacity:1;}}
+#winOverlay{position:fixed;top:0;left:0;width:100%;height:100%;display:flex;justify-content:center;align-items:center;pointer-events:none;z-index:9999;}
+.winText{font-size:3rem;color:#00ffae;text-shadow:0 0 10px #00ffae,0 0 20px #00ffae,0 0 30px #00ffae;animation:fadeWin 3s ease forwards;}
+@keyframes fadeWin{0%{opacity:0;transform:scale(0.5);}10%{opacity:1;transform:scale(1.2);}100%{opacity:0;transform:scale(1);}}
+.confetti{position:absolute;width:10px;height:10px;pointer-events:none;animation:fall linear forwards;}
+@keyframes fall{0%{transform:translateY(0) rotate(0deg);}100%{transform:translateY(100vh) rotate(360deg);opacity:0;}}
+@media(max-width:500px){#board{grid-template-columns:repeat(3,28vw);grid-template-rows:repeat(3,28vw);gap:5px;}.cell{font-size:10vw;}.winText{font-size:8vw;}}
+</style>
+</head>
+<body>
+
+<div id="loadingScreen">
+  <div class="spinner"></div>
+  <div class="loading-text">Waiting for Opponent...</div>
+</div>
+
+<div id="winOverlay"></div>
+
+<header>
+  <h1>🔥 Firebase Multiplayer Tic-Tac-Toe</h1>
+  <div id="turnIndicator">Connecting...</div>
+</header>
+
+<div id="board"></div>
+
+<div id="chatContainer">
+  <div id="chatBox"></div>
+  <div>
+    <input id="chatInput" placeholder="Type message...">
+    <button id="sendBtn">Send</button>
+  </div>
+</div>
+
+<div id="footer">
+  <button id="restartBtn">Restart</button>
+  <button id="rematchBtn" style="display:none;">Play Again</button>
+  <button id="endGameBtn">End Game</button>
+  <div id="playerInfo"></div>
+  <div id="statusMsg"></div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+<script>
+// Firebase config
+const firebaseConfig = {
+  apiKey: "AIzaSyCC8P_ru56uzFebIXsyyV7xGYPWoSvCcgM",
+  authDomain: "tictactoe-256b8.firebaseapp.com",
+  databaseURL: "https://tictactoe-256b8-default-rtdb.firebaseio.com",
+  projectId: "tictactoe-256b8",
+  storageBucket: "tictactoe-256b8.firebasestorage.app",
+  messagingSenderId: "780004952309",
+  appId: "1:780004952309:web:a6d7581a8292a409d11dbc"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+// Game variables
+const WIN_COMBOS=[[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+let roomId=null, playerSymbol=null, myTurn=false, board=["","","","","","","","",""], opponentDisconnected=false;
+
+// DOM elements
+const boardEl=document.getElementById('board');
+const chatBox=document.getElementById('chatBox');
+const chatInput=document.getElementById('chatInput');
+const sendBtn=document.getElementById('sendBtn');
+const turnIndicator=document.getElementById('turnIndicator');
+const playerInfo=document.getElementById('playerInfo');
+const restartBtn=document.getElementById('restartBtn');
+const rematchBtn=document.getElementById('rematchBtn');
+const endGameBtn=document.getElementById('endGameBtn');
+const statusMsg=document.getElementById('statusMsg');
+const loadingScreen=document.getElementById('loadingScreen');
+const chatContainer=document.getElementById('chatContainer');
+const footer=document.getElementById('footer');
+const winOverlay=document.getElementById('winOverlay');
+
+// Initialize board
+for(let i=0;i<9;i++){
+  const cell=document.createElement('div');
+  cell.className='cell';
+  cell.dataset.index=i;
+  cell.addEventListener('click',()=>handleMove(i));
+  boardEl.appendChild(cell);
+}
+
+// Persistent client ID
+let clientId = localStorage.getItem('tttClientId');
+if(!clientId){clientId='id_'+Date.now()+'_'+Math.floor(Math.random()*1000); localStorage.setItem('tttClientId',clientId);}
+
+// Join game
+async function joinGame(){
+  const roomsRef=db.ref('rooms');
+  let joined=false;
+  const snapshot=await roomsRef.once('value');
+  const rooms=snapshot.val()||{};
+  for(let id in rooms){
+    const room=rooms[id];
+    const players=room.players||{};
+    if(players.player1 && !players.player2 && !room.winner){
+      await db.ref(`rooms/${id}/players/player2`).transaction(current=>{
+        if(!current){joined=true; playerSymbol='O'; myTurn=false; return clientId;}
+        else return;
+      });
+      if(joined){roomId=id; break;}
+    }
+  }
+  if(!joined){
+    roomId='room_'+Date.now()+'_'+Math.floor(Math.random()*1000);
+    playerSymbol='X';
+    myTurn=true;
+    await db.ref(`rooms/${roomId}`).set({
+      players:{player1:clientId},
+      board:["","","","","","","","",""],
+      turn:"X",
+      chat:[],
+      winner:null,
+      stats:{ [clientId]: {wins:0,losses:0,draws:0} }
+    });
+  }
+  listenRoom();
+  handleDisconnect();
+}
+
+// Listen room changes
+function listenRoom(){
+  const roomRef=db.ref(`rooms/${roomId}`);
+  roomRef.on('value',snap=>{
+    const data=snap.val(); if(!data) return;
+    board=data.board; updateBoard();
+    updateTurn(data.turn);
+    if(data.winner) showWinner(data.winner);
+    const players=data.players||{};
+    if(players.player1 && players.player2){
+      loadingScreen.style.display="none";
+      boardEl.style.opacity=1;
+      chatContainer.style.opacity=1;
+      footer.style.opacity=1;
+      // Initialize stats for second player
+      if(!data.stats[playerSymbol==="X"?"player2":"player1"]){
+        db.ref(`rooms/${roomId}/stats/${players.player1==="player1"?players.player2:players.player1}`).set({wins:0,losses:0,draws:0});
+      }
+    }
+  });
+  db.ref(`rooms/${roomId}/chat`).on('child_added',snap=>{
+    const msg=snap.val(); addChatMessage(msg.sender+": "+msg.message);
+  });
+}
+
+// Chat
+sendBtn.onclick=()=>{const text=chatInput.value.trim(); if(text){db.ref(`rooms/${roomId}/chat`).push({sender:playerSymbol,message:text,timestamp:Date.now()}); chatInput.value="";}};
+function addChatMessage(msg){const div=document.createElement('div'); div.className='msg'; div.textContent=msg; chatBox.appendChild(div); chatBox.scrollTop=chatBox.scrollHeight;}
+
+// Move handling
+async function handleMove(i){
+  const snap=await db.ref(`rooms/${roomId}`).once('value');
+  const data=snap.val(); if(!data||data.winner||opponentDisconnected) return;
+  const {turn,currentBoard=board}=data; if(turn!==playerSymbol||currentBoard[i]!=="") return;
+  currentBoard[i]=playerSymbol;
+  const winner=checkWinner(currentBoard);
+  const nextTurn=playerSymbol==="X"?"O":"X";
+  const updates={board:currentBoard,turn:nextTurn};
+  if(winner) updates.winner=winner;
+  await db.ref(`rooms/${roomId}`).update(updates);
+  if(winner) updateStats(winner);
+}
+
+// Update board and turn
+function updateBoard(){document.querySelectorAll('.cell').forEach((cell,i)=>{const sym=board[i]; if(cell.textContent!==sym){cell.textContent=sym; if(sym) cell.classList.add('pop');}});}
+function updateTurn(turn){turnIndicator.textContent="Turn: "+turn; myTurn=(turn===playerSymbol); playerInfo.textContent=`You are Player ${playerSymbol}`;}
+function checkWinner(b){for(let [a,b2,c] of WIN_COMBOS){if(b[a]&&b[a]===b[b2]&&b[a]===b[c]) return b[a];} return b.includes("")?null:"draw";}
+
+// Update stats
+function updateStats(winner){
+  const statsRef = db.ref(`rooms/${roomId}/stats`);
+  statsRef.once('value',snap=>{
+    const stats = snap.val()||{};
+    if(!stats[clientId]) stats[clientId]={wins:0,losses:0,draws:0};
+    let opponentId = Object.keys(stats).find(id=>id!==clientId);
+    if(winner===playerSymbol){ stats[clientId].wins++; stats[opponentId].losses++; }
+    else if(winner==="draw"){ stats[clientId].draws++; stats[opponentId].draws++; }
+    else{ stats[clientId].losses++; stats[opponentId].wins++; }
+    statsRef.set(stats);
+    showStats(stats[clientId]);
+  });
+}
+
+function showStats(stat){
+  alert(`🏆 Stats:\nWins: ${stat.wins}\nLosses: ${stat.losses}\nDraws: ${stat.draws}\nTotal Points: ${stat.wins*3 + stat.draws}`);
+}
+
+// Show winner with confetti
+function showWinner(winner){
+  if(winner==="draw"){alert("🤝 It's a draw!"); rematchBtn.style.display="inline-block"; return;}
+  rematchBtn.style.display="inline-block";
+  const winText=document.createElement('div'); winText.className='winText'; winText.textContent=`🏆 Player ${winner} Wins!`; winOverlay.appendChild(winText);
+  for(let i=0;i<150;i++){
+    const conf=document.createElement('div'); conf.className='confetti';
+    conf.style.left=Math.random()*100+'vw';
+    conf.style.background=`hsl(${Math.random()*360},100%,50%)`;
+    conf.style.animationDuration=(2+Math.random()*3)+'s';
+    winOverlay.appendChild(conf);
+    setTimeout(()=>conf.remove(),5000);
+  }
+  setTimeout(()=>winText.remove(),3000);
+}
+
+// Restart & rematch
+restartBtn.onclick=async()=>{await db.ref(`rooms/${roomId}`).update({board:["","","","","","","","",""],turn:"X",winner:null}); rematchBtn.style.display="none";}
+rematchBtn.onclick=restartBtn.onclick;
+
+// End Game button
+endGameBtn.onclick=async()=>{
+  const statsSnap = await db.ref(`rooms/${roomId}/stats/${clientId}`).once('value');
+  const stat = statsSnap.val()||{wins:0,losses:0,draws:0};
+  alert(`🎮 Final Stats:\nWins: ${stat.wins}\nLosses: ${stat.losses}\nDraws: ${stat.draws}\nTotal Points: ${stat.wins*3 + stat.draws}`);
+  await db.ref(`rooms/${roomId}/players/${playerSymbol==="X"?"player1":"player2"}`).remove();
+  location.reload();
+};
+
+// Disconnect detection
+function handleDisconnect(){
+  const path=playerSymbol==="X"?"player1":"player2";
+  db.ref(`rooms/${roomId}/players/${path}`).onDisconnect().remove();
+  db.ref(`rooms/${roomId}/players`).on('value',snap=>{
+    const players=snap.val()||{};
+    if(!players.player1||!players.player2){opponentDisconnected=true; statusMsg.textContent="⚠️ Opponent Left!";}
+    else{opponentDisconnected=false; statusMsg.textContent="";}
+  });
+}
+
+// Start game
+joinGame();
+</script>
+</body>
+</html>
